@@ -161,7 +161,7 @@ def batchnorm_forward(x, gamma, beta, bn_param):
     momentum = bn_param.get('momentum', 0.9)
 
     N, D = x.shape
-    running_mean = bn_param.get('running_mean', np.zeros(D, dtype=x.dtype))
+    running_mean = bn_param.get('running_mean', np.zeros(D, dtype=x.dtype)) # 如果running_mean不存在，则running_mean = np.zeros(D, dtype=x.dtype)
     running_var = bn_param.get('running_var', np.zeros(D, dtype=x.dtype))
 
     out, cache = None, None
@@ -188,9 +188,13 @@ def batchnorm_forward(x, gamma, beta, bn_param):
         # might prove to be helpful.                                          #
         #######################################################################
         # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
-
-        pass
-
+        sample_mean = x.mean(axis=0) #(D,)
+        sample_var = x.var(axis=0)  #(D,)
+        x_hat = (x - sample_mean) / np.sqrt(sample_var + eps) #(N, D)
+        out = gamma * x_hat + beta #(N, D)
+        running_mean = momentum * running_mean + (1 - momentum) * sample_mean
+        running_var = momentum * running_var + (1 - momentum) * sample_var
+        cache = (x, eps, gamma, beta, x_hat, sample_mean, sample_var)
         # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
         #######################################################################
         #                           END OF YOUR CODE                          #
@@ -203,9 +207,8 @@ def batchnorm_forward(x, gamma, beta, bn_param):
         # Store the result in the out variable.                               #
         #######################################################################
         # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
-
-        pass
-
+        x = (x - running_mean) / np.sqrt(running_var)
+        out = gamma * x + beta
         # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
         #######################################################################
         #                          END OF YOUR CODE                           #
@@ -245,9 +248,19 @@ def batchnorm_backward(dout, cache):
     # might prove to be helpful.                                              #
     ###########################################################################
     # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
-
-    pass
-
+    x, eps, gamma, beta, x_hat, sample_mean, sample_var = cache
+    N, D = dout.shape
+    dgamma = np.sum(dout * x_hat,axis=0)
+    dbeta = np.sum(dout, axis=0)
+    dx_hat = dout * gamma
+    dsample_var = np.sum(dx_hat * (x - sample_mean), axis=0) * (-1/2) * (sample_var + eps) ** (-1.5) # (D,)
+    dsample_mean_in_sample_var = dsample_var * (np.sum(-2 * (x-sample_mean),axis=0) / N)
+    dsample_mean_in_x_hat = np.sum(dx_hat * (-1.0 / np.sqrt(sample_var + eps)), axis=0)
+    dsample_mean = dsample_mean_in_sample_var + dsample_mean_in_x_hat #(D,)
+    dx_in_sample_var = dsample_var * 2 * (x - sample_mean) / N
+    dx_in_sample_mean = dsample_mean / N
+    dx_in_x_hat = dx_hat * (sample_var + eps) ** (-0.5)
+    dx = dx_in_sample_var + dx_in_sample_mean + dx_in_x_hat
     # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
     ###########################################################################
     #                             END OF YOUR CODE                            #
@@ -280,9 +293,12 @@ def batchnorm_backward_alt(dout, cache):
     # single statement; our implementation fits on a single 80-character line.#
     ###########################################################################
     # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
-
-    pass
-
+    x, eps, gamma, beta, x_hat, sample_mean, sample_var = cache
+    N, D = dout.shape
+    dgamma = np.sum(dout * x_hat,axis=0)
+    dbeta = np.sum(dout, axis=0)
+    dx = (1 / N) * gamma * (sample_var + eps) ** (-1 / 2) * (N * dout - np.sum(dout, axis=0) - (x - sample_mean)
+                                                                 * (sample_var + eps) ** (-1.0) * np.sum(dout * (x - sample_mean), axis=0))
     # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
     ###########################################################################
     #                             END OF YOUR CODE                            #
@@ -326,9 +342,11 @@ def layernorm_forward(x, gamma, beta, ln_param):
     # the batch norm code and leave it almost unchanged?                      #
     ###########################################################################
     # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
-
-    pass
-
+    mean = x.mean(axis=1).reshape(-1, 1)
+    var = x.var(axis=1).reshape(-1, 1)
+    x_hat = (x - mean) / np.sqrt(var + eps)
+    cache = x, gamma, beta, x_hat, mean, var, eps
+    out = gamma * x_hat + beta
     # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
     ###########################################################################
     #                             END OF YOUR CODE                            #
@@ -361,9 +379,14 @@ def layernorm_backward(dout, cache):
     # still apply!                                                            #
     ###########################################################################
     # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
-
-    pass
-
+    x, gamma, beta, x_hat, mean, var, eps = cache
+    N= x.shape[1]
+    dbeta = dout.sum(axis=0) # (N,)
+    dgamma = (x_hat * dout).sum(axis=0) # (N,)
+    dx_hat = dout * gamma # (N,D) * (N,)
+    dsigma = -0.5 * np.sum(dx_hat * (x - mean), axis=1) * ((var.squeeze() + eps) ** (-1.5))
+    dmean = -np.sum(dx_hat / np.sqrt(var + eps), axis=1).squeeze() - 2 * dsigma * np.sum(x - mean, axis=1) / N
+    dx = dx_hat / np.sqrt(var + eps) + 2.0 * dsigma.reshape(-1, 1) * (x - mean) / N + dmean.reshape(-1, 1) / N
     # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
     ###########################################################################
     #                             END OF YOUR CODE                            #
